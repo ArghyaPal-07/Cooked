@@ -44,6 +44,16 @@ export async function POST(request) {
     allGenres.filter(v => v===a).length - allGenres.filter(v => v===b).length
   ).pop() || "Pop";
 
+  // --- SAFETY CHECK START ---
+  // If the user has no listening history, give them default values to prevent crashing
+  if (!artistsData.items || artistsData.items.length === 0) {
+     return NextResponse.json({ 
+       error: "Not enough data",
+       // Optional: You could return a custom "boring" roast here instead of an error
+     }, { status: 400 });
+  }
+  // --- SAFETY CHECK END ---
+
   // Data for AI
   const artistList = artistsData.items.slice(0, 5).map(a => a.name).join(', ');
   const trackList = tracksData.items.slice(0, 5).map(t => `${t.name} by ${t.artists[0].name}`).join(', ');
