@@ -9,7 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "framer-motion": "^12.23.26",
     "next": "16.1.1",
+    "openai": "^6.15.0",
+    "querystring": "^0.2.1",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
