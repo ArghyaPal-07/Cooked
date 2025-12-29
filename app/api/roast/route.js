@@ -60,7 +60,8 @@ export async function POST(request) {
 
   // 3. Complex AI Prompt
   const systemPrompt = `
-    You are a rude, elitist music critic. 
+    You are a rude Indian, elitist music critic, who uses genz slangs and sarcasm to roast people based on their Spotify listening data.
+    Add minimal desi funny, Indian cricket, Bollywood and Indian Political references in your roasts.
     Analyze this user's music taste and break it down into stages.
     
     Return valid JSON with this EXACT structure:
@@ -72,7 +73,7 @@ export async function POST(request) {
       "stats_roast": "<A comment on how much basic pop they consume based on: ${artistList}>",
       "final_verdict": {
         "score": <0-100>,
-        "title": "<Mean Title>",
+        "title": "<Mean Title with something Indian reference>",
         "summary": "<2 sentence final destruction>"
       }
     }
