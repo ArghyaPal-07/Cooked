@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 
-// 1. Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const openai = new OpenAI({ 
+  apiKey: process.env.GROQ_API_KEY, 
+  baseURL: "https://api.groq.com/openai/v1" 
+});
 
 export async function POST(request) {
   const { code } = await request.json();
 
-  // --- SPOTIFY AUTH & DATA FETCHING (Same as before) ---
+  // 1. Spotify Auth (Same as before)
   const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: {
@@ -22,12 +24,13 @@ export async function POST(request) {
   });
 
   const tokenData = await tokenResponse.json();
-  if (!tokenData.access_token) return NextResponse.json({ error: 'Spotify Auth Failed' }, { status: 400 });
   const accessToken = tokenData.access_token;
+  if (!accessToken) return NextResponse.json({ error: 'Auth Failed' }, { status: 400 });
 
+  // 2. Fetch Extended Data
   const [artistsRes, tracksRes, profileRes] = await Promise.all([
-    fetch('https://api.spotify.com/v1/me/top/artists?time_range=long_term&limit=5', { headers: { Authorization: `Bearer ${accessToken}` } }),
-    fetch('https://api.spotify.com/v1/me/top/tracks?time_range=short_term&limit=5', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    fetch('https://api.spotify.com/v1/me/top/artists?limit=10&time_range=medium_term', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    fetch('https://api.spotify.com/v1/me/top/tracks?limit=10&time_range=short_term', { headers: { Authorization: `Bearer ${accessToken}` } }),
     fetch('https://api.spotify.com/v1/me', { headers: { Authorization: `Bearer ${accessToken}` } })
   ]);
 
@@ -35,51 +38,75 @@ export async function POST(request) {
   const tracksData = await tracksRes.json();
   const profileData = await profileRes.json();
 
-  // Safety Check
-  if (!artistsData.items || artistsData.items.length === 0) {
-     return NextResponse.json({ error: "Not enough data" }, { status: 400 });
-  }
-
-  // Process Data
+  // Process Genre (Spotify doesn't give "Top Genre" directly, we infer it from artists)
   const allGenres = artistsData.items.flatMap(a => a.genres);
-  const topGenre = allGenres.sort((a,b) => allGenres.filter(v => v===a).length - allGenres.filter(v => v===b).length).pop() || "Pop";
+  const topGenre = allGenres.sort((a,b) =>
+    allGenres.filter(v => v===a).length - allGenres.filter(v => v===b).length
+  ).pop() || "Pop";
+
+  // --- SAFETY CHECK START ---
+  // If the user has no listening history, give them default values to prevent crashing
+  if (!artistsData.items || artistsData.items.length === 0) {
+     return NextResponse.json({ 
+       error: "Not enough data",
+       // Optional: You could return a custom "boring" roast here instead of an error
+     }, { status: 400 });
+  }
+  // --- SAFETY CHECK END ---
+
+  // Data for AI
   const artistList = artistsData.items.slice(0, 5).map(a => a.name).join(', ');
   const trackList = tracksData.items.slice(0, 5).map(t => `${t.name} by ${t.artists[0].name}`).join(', ');
 
-  // --- GEMINI SPECIFIC CODE STARTS HERE ---
-  
-  // 2. Configure the Model
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash", // Fast and cheap (free tier)
-    systemInstruction: `
-      You are a rude, elitist music critic. 
-      Analyze this user's music taste and break it down into stages.
-      
-      You MUST return valid JSON with this EXACT structure:
-      {
-        "intro": "<A short, sarcastic greeting using their name: ${profileData.display_name}>",
-        "genre_roast": "<Roast them specifically for listening to ${topGenre}>",
-        "artist_roast": "<Roast their top artist: ${artistsData.items[0].name}>",
-        "track_roast": "<Roast their top track: ${tracksData.items[0].name}>",
-        "final_verdict": {
-          "score": <number 0-100>,
-          "title": "<Mean Title>",
-          "summary": "<2 sentence final destruction>"
-        }
-      }
-    `,
-    generationConfig: {
-      responseMimeType: "application/json", // Forces JSON output
-    }
-  });
+  // 3. Complex AI Prompt
+  // 3. Complex AI Prompt
+  const systemPrompt = `
+    You are a rude, elitist Indian music critic with severe "South Bombay" attitude and Gen Z brainrot. 
+    Your job is to roast this user's music taste using heavy sarcasm, Hinglish, and Gen Z slang (e.g., "cooked," "no cap," "NPC behavior," "chhapri").
 
-  const prompt = `User's Top Artists: ${artistList}. User's Top Tracks: ${trackList}. Top Genre: ${topGenre}. Roast them.`;
+    **Tone & Style Rules:**
+    1. **Be Rude:** Treat their playlist like a failed election manifesto—full of false promises and disappointment.
+    2. **Political Metaphors (The Funny Kind):** Use lighthearted Indian political references. 
+       - *Example:* "This playlist is more confused than a coalition government."
+       - *Example:* "You flip-flop on genres faster than an MLA changing parties."
+       - *Example:* "This artist has been launching for 20 years like a certain 'Yuva Neta'."
+    3. **No Fluff:** Keep it punchy. Do not be polite.
+
+    **Data to Roast:**
+    - User Name: ${profileData.display_name}
+    - Top Genre: ${topGenre}
+    - Top Artist: ${artistsData.items[0].name}
+    - Top Track: ${tracksData.items[0].name}
+    - Artist List: ${artistList}
+
+    **Output Requirement:**
+    You must return **ONLY** valid JSON. Do not add markdown blocks (\`\`\`json). Follow this EXACT structure:
+
+    {
+      "intro": "A sarcastic greeting. Example: 'Namaste ${profileData.display_name}, showed this playlist to the IT Cell and they resigned.'",
+      "genre_roast": "Roast them for listening to ${topGenre}. Compare it to something annoying in India (e.g., 'Listening to this is harder than getting a Tatkal ticket').",
+      "artist_roast": "Savage insult about ${artistsData.items[0].name}. If it's basic, say it has less substance than a budget speech.",
+      "track_roast": "Roast ${tracksData.items[0].name}. Ask if they play this at rallies to disperse the crowd.",
+      "stats_roast": "Judge their list (${artistList}). Call them an NPC. Ask if their taste is subsidized by the government.",
+      "final_verdict": {
+        "score": <Integer 0-100, where 0 is 'Dhinchak Pooja' level and 100 is impossible>,
+        "title": "A mean title. Examples: 'The Demonetization Victim', 'Aaya Ram Gaya Ram', 'Vote Bank Musician', 'The Opposition Leader'",
+        "summary": "2 sentences destroying their soul. Use slang like 'touch grass' or 'emotional damage'."
+      }
+    }
+  `;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    const aiContent = JSON.parse(text);
+    const completion = await openai.chat.completions.create({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Artists: ${artistList}. Tracks: ${trackList}. Genre: ${topGenre}` }
+      ],
+      model: "llama-3.3-70b-versatile",
+      response_format: { type: "json_object" }
+    });
+
+    const aiContent = JSON.parse(completion.choices[0].message.content);
 
     return NextResponse.json({
       content: aiContent,
@@ -88,11 +115,11 @@ export async function POST(request) {
         topGenre: topGenre,
         topArtist: artistsData.items[0],
         topTracks: tracksData.items.slice(0, 5),
+        allArtists: artistsData.items.slice(0, 5),
       }
     });
 
   } catch (error) {
-    console.error("Gemini Error:", error);
     return NextResponse.json({ error: "AI Failed" }, { status: 500 });
   }
 }
