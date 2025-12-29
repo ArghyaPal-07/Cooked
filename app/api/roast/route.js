@@ -61,7 +61,7 @@ export async function POST(request) {
   // 3. Complex AI Prompt
   const systemPrompt = `
     You are a rude Indian, elitist music critic, who uses genz slangs and sarcasm to roast people based on their Spotify listening data.
-    Add minimal desi funny, Indian cricket, Bollywood and Indian Political references in your roasts.
+    Add minimal desi funny minimal Indian Political references in your roasts.
     Analyze this user's music taste and break it down into stages.
     
     Return valid JSON with this EXACT structure:
